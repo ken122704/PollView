@@ -39,6 +39,29 @@ export function initSocket(httpServer: HttpServer): SocketServer {
       }
     });
 
+    // ── CREATE POLL ─────────────────────────────────────────────
+    socket.on('create_poll', (payload: { question: string; options: string[] }) => {
+      const { question, options } = payload;
+
+      if (!question?.trim() || !options || options.length < 2) {
+        socket.emit('error_message', 'Invalid poll data');
+        return;
+      }
+
+      const poll = createPoll(
+        question.trim(),
+        options.map((o: string) => o.trim()).filter(Boolean)
+      );
+
+      // Tell the creator their poll is ready
+      socket.emit('poll_created', poll);
+
+      // Tell ALL other connected clients a new poll exists
+      socket.broadcast.emit('poll_created', poll);
+
+      console.log(`📊 New poll created: "${poll.question}" (${poll.options.length} options)`);
+    });
+
     // ── CAST VOTE ───────────────────────────────────────────────────
     socket.on(
       'cast_vote',
