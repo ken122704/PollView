@@ -6,6 +6,7 @@ import {
   getAllPolls,
   seedDefaultPoll,
   createPoll,
+  updatePoll,
 } from './pollStore';
 import { addAnalysisJob } from './queue';
 
@@ -61,6 +62,38 @@ export function initSocket(httpServer: HttpServer): SocketServer {
 
       console.log(`📊 New poll created: "${poll.question}" (${poll.options.length} options)`);
     });
+
+    // ── UPDATE POLL ─────────────────────────────────────────────
+    socket.on(
+      'update_poll',
+      (payload: { pollId: string; question: string; options: string[] }) => {
+        const { pollId, question, options } = payload;
+
+        if (!question?.trim() || !options || options.length < 2) {
+          socket.emit('error_message', 'Invalid poll update data');
+          return;
+        }
+
+        const updated = updatePoll(
+          pollId,
+          question.trim(),
+          options.map((o: string) => o.trim()).filter(Boolean)
+        );
+
+        if (!updated) {
+          socket.emit('error_message', `Poll ${pollId} not found`);
+          return;
+        }
+
+        // Tell everyone in this poll's room the data changed
+        io.to(pollId).emit('poll_update', updated);
+
+        // Tell everyone the sidebar list should refresh
+        io.emit('poll_updated_meta', updated);
+
+        console.log(`✏️  Poll updated: "${updated.question}" (${pollId})`);
+      }
+    );
 
     // ── CAST VOTE ───────────────────────────────────────────────────
     socket.on(

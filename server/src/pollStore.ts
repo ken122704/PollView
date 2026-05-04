@@ -123,3 +123,37 @@ export function seedDefaultPoll(): Poll {
     'Go',
   ]);
 }
+
+// Add this export alongside createPoll, getPoll, etc.
+export function updatePoll(
+  pollId: string,
+  question: string,
+  options: string[]
+): Poll | null {
+  const poll = polls.get(pollId);
+  if (!poll) return null;
+
+  // Preserve existing vote counts for options that still exist by label.
+  // New options start at 0. Renamed options also start at 0 (treated as new).
+  const updatedOptions: PollOption[] = options.map((label, i) => {
+    const existing = poll.options.find(o => o.label === label);
+    return {
+      id: existing?.id ?? `opt_${i}_${Date.now()}`,
+      label,
+      votes: existing?.votes ?? 0,
+    };
+  });
+
+  // Recalculate totalVotes based on surviving options
+  const totalVotes = updatedOptions.reduce((sum, o) => sum + o.votes, 0);
+
+  const updated: Poll = {
+    ...poll,
+    question,
+    options: updatedOptions,
+    totalVotes,
+  };
+
+  polls.set(pollId, updated);
+  return { ...updated, options: [...updated.options] };
+}

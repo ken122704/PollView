@@ -196,3 +196,15 @@
 .btn-cancel:hover { border-color: var(--border-mid); color: var(--text-primary); background: var(--bg-hover); }
 .btn-create { min-width: 110px; justify-content: center; }
 .btn-create.loading { opacity: 0.8; }
+
+/* Shared with EditPollModal */
+.modal-notice {
+  font-size: 0.8rem;
+  color: var(--amber);
+  background: rgba(245,158,11,0.08);
+  border: 1px solid rgba(245,158,11,0.2);
+  border-radius: var(--radius-sm);
+  padding: 0.6rem 0.8rem;
+  margin-bottom: 1.25rem;
+  line-height: 1.5;
+}

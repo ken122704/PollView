@@ -1,20 +1,21 @@
 import { useEffect, useState, useCallback } from 'react';
 import { socket } from '../socket';
-import { CreatePollModal } from  './CreatePollModal';
+import { CreatePollModal } from './CreatePollModal';
+import { EditPollModal } from './EditPollModal';
 import type { Poll, AnalysisSummary } from '../types/poll';
 import './PollRoom.css';
 
-
 export function PollRoom() {
-  const [polls, setPolls]               = useState<Poll[]>([]);
-  const [activePoll, setActivePoll]     = useState<Poll | null>(null);
-  const [analysis, setAnalysis]         = useState<AnalysisSummary | null>(null);
+  const [polls, setPolls]                   = useState<Poll[]>([]);
+  const [activePoll, setActivePoll]         = useState<Poll | null>(null);
+  const [analysis, setAnalysis]             = useState<AnalysisSummary | null>(null);
   const [analysisStatus, setAnalysisStatus] = useState('');
   const [analysisLoading, setAnalysisLoading] = useState(false);
-  const [connected, setConnected]       = useState(false);
-  const [votedOption, setVotedOption]   = useState<string | null>(null);
-  const [showCreate, setShowCreate]     = useState(false);
-  const [justVoted, setJustVoted]       = useState(false);
+  const [connected, setConnected]           = useState(false);
+  const [votedOption, setVotedOption]       = useState<string | null>(null);
+  const [showCreate, setShowCreate]         = useState(false);
+  const [justVoted, setJustVoted]           = useState(false);
+  const [editingPoll, setEditingPoll]       = useState<Poll | null>(null);
 
   const joinPoll = useCallback((pollId: string) => {
     socket.emit('join_poll', pollId);
@@ -32,35 +33,51 @@ export function PollRoom() {
       setConnected(true);
       socket.emit('get_polls');
     });
+
     socket.on('disconnect', () => setConnected(false));
+
     socket.on('polls_list', (data: Poll[]) => {
       setPolls(data);
       if (data.length > 0) joinPoll(data[0].id);
     });
+
     socket.on('poll_created', (poll: Poll) => {
       setPolls(prev => {
         if (prev.find(p => p.id === poll.id)) return prev;
         return [...prev, poll];
       });
     });
+
     socket.on('poll_state',  (poll: Poll) => setActivePoll(poll));
     socket.on('poll_update', (poll: Poll) => setActivePoll(poll));
+
     socket.on('analysis_queued', ({ message }: { message: string }) => {
       setAnalysisStatus(message);
       setAnalysisLoading(true);
       setAnalysis(null);
     });
+
     socket.on('analysis_complete', (summary: AnalysisSummary) => {
       setAnalysis(summary);
       setAnalysisStatus('');
       setAnalysisLoading(false);
     });
-    socket.on('error_message', (msg: string) => console.error('Socket error:', msg));
+
+    socket.on('error_message', (msg: string) => {
+      console.error('Socket error:', msg);
+    });
+
+    socket.on('poll_updated_meta', (updated: Poll) => {
+      setPolls(prev => prev.map(p => p.id === updated.id ? updated : p));
+      setActivePoll(prev => prev?.id === updated.id ? updated : prev);
+    });
 
     return () => {
-      ['connect','disconnect','polls_list','poll_created','poll_state',
-       'poll_update','analysis_queued','analysis_complete','error_message']
-        .forEach(e => socket.off(e));
+      [
+        'connect', 'disconnect', 'polls_list', 'poll_created',
+        'poll_state', 'poll_update', 'analysis_queued', 'analysis_complete',
+        'error_message', 'poll_updated_meta',
+      ].forEach(e => socket.off(e));
       socket.disconnect();
     };
   }, [joinPoll]);
@@ -87,9 +104,16 @@ export function PollRoom() {
     setShowCreate(false);
   }
 
+  function handlePollUpdated(updated: Poll) {
+    setPolls(prev => prev.map(p => p.id === updated.id ? updated : p));
+    setActivePoll(prev => prev?.id === updated.id ? updated : prev);
+    setEditingPoll(null);
+  }
+
   return (
     <div className="poll-room">
-      {/* ── Page title row ── */}
+
+      {/* ── Page header ── */}
       <div className="page-header">
         <div>
           <h1 className="page-title">Live Polls</h1>
@@ -100,38 +124,64 @@ export function PollRoom() {
         </button>
       </div>
 
-      {/* ── Connection badge ── */}
+      {/* ── WebSocket status badge ── */}
       <div className={`ws-badge ${connected ? 'ws-on' : 'ws-off'}`}>
         <span className="ws-dot" />
         {connected ? 'WebSocket connected' : 'Disconnected'}
       </div>
 
       <div className="room-layout">
-        {/* ── Sidebar: poll list ── */}
+
+        {/* ── Sidebar ── */}
         <aside className="poll-sidebar">
-          <p className="sidebar-label">POLLS  <span className="poll-count">{polls.length}</span></p>
+          <p className="sidebar-label">
+            POLLS <span className="poll-count">{polls.length}</span>
+          </p>
+
           <div className="poll-list">
             {polls.length === 0 && (
-              <p className="empty-hint">No polls yet.<br/>Create one to get started.</p>
+              <p className="empty-hint">No polls yet.<br />Create one to get started.</p>
             )}
+
             {polls.map(poll => (
-              <button
+              <div
                 key={poll.id}
-                className={`poll-tab ${activePoll?.id === poll.id ? 'active' : ''}`}
-                onClick={() => joinPoll(poll.id)}
+                className={`poll-tab-wrapper ${activePoll?.id === poll.id ? 'active' : ''}`}
               >
-                <span className="poll-tab-question">{poll.question}</span>
-                <span className="poll-tab-meta mono">{poll.totalVotes} votes</span>
-              </button>
+                {/* Main tab button — clicking joins the poll */}
+                <button
+                  className={`poll-tab ${activePoll?.id === poll.id ? 'active' : ''}`}
+                  onClick={() => joinPoll(poll.id)}
+                >
+                  <span className="poll-tab-question">{poll.question}</span>
+                  <span className="poll-tab-meta mono">{poll.totalVotes} votes</span>
+                </button>
+
+                {/* Edit button — appears on hover or when tab is active */}
+                <button
+                  className="poll-tab-edit"
+                  onClick={e => {
+                    e.stopPropagation(); // prevent joinPoll from firing
+                    setEditingPoll(poll);
+                  }}
+                  aria-label="Edit poll"
+                  title="Edit poll"
+                >
+                  ✎
+                </button>
+              </div>
             ))}
           </div>
+
           <button className="btn-ghost sidebar-new" onClick={() => setShowCreate(true)}>
             + Create poll
           </button>
         </aside>
 
-        {/* ── Main: active poll ── */}
+        {/* ── Main content ── */}
         <section className="poll-main">
+
+          {/* Empty state */}
           {!activePoll && (
             <div className="poll-empty">
               <div className="empty-icon">◈</div>
@@ -139,34 +189,59 @@ export function PollRoom() {
             </div>
           )}
 
+          {/* Active poll card */}
           {activePoll && (
             <div className={`poll-card ${justVoted ? 'just-voted' : ''}`}>
+
               {/* Card header */}
               <div className="poll-card-header">
-                <span className="live-badge"><span className="live-dot"/>LIVE</span>
-                <span className="vote-count mono">{activePoll.totalVotes} votes</span>
+                <span className="live-badge">
+                  <span className="live-dot" />
+                  LIVE
+                </span>
+                <div className="card-header-right">
+                  <span className="vote-count mono">{activePoll.totalVotes} votes</span>
+                  {/* Edit shortcut inside the card itself */}
+                  <button
+                    className="card-edit-btn"
+                    onClick={() => setEditingPoll(activePoll)}
+                    title="Edit this poll"
+                    aria-label="Edit this poll"
+                  >
+                    ✎ Edit
+                  </button>
+                </div>
               </div>
 
               <h2 className="poll-question">{activePoll.question}</h2>
 
-              {/* Options */}
+              {/* Vote options */}
               <div className="options-list">
                 {activePoll.options.map((opt, i) => {
                   const pct = activePoll.totalVotes > 0
-                    ? (opt.votes / activePoll.totalVotes) * 100 : 0;
+                    ? (opt.votes / activePoll.totalVotes) * 100
+                    : 0;
                   const isVoted   = votedOption === opt.id;
-                  const isWinning = activePoll.totalVotes > 0 &&
+                  const isWinning =
+                    activePoll.totalVotes > 0 &&
                     opt.votes === Math.max(...activePoll.options.map(o => o.votes));
 
                   return (
                     <button
                       key={opt.id}
-                      className={`option-btn ${isVoted ? 'voted' : ''} ${isWinning && activePoll.totalVotes > 0 ? 'winning' : ''} ${votedOption && !isVoted ? 'dimmed' : ''}`}
+                      className={[
+                        'option-btn',
+                        isVoted                                   ? 'voted'   : '',
+                        isWinning && activePoll.totalVotes > 0    ? 'winning' : '',
+                        votedOption && !isVoted                   ? 'dimmed'  : '',
+                      ].join(' ')}
                       onClick={() => vote(opt.id)}
                       disabled={!!votedOption}
                       style={{ '--delay': `${i * 0.05}s` } as React.CSSProperties}
                     >
+                      {/* Animated progress bar behind content */}
                       <div className="option-bar" style={{ width: `${pct}%` }} />
+
                       <div className="option-content">
                         <span className="option-label">
                           {isVoted && <span className="check">✓</span>}
@@ -186,7 +261,7 @@ export function PollRoom() {
                 <p className="voted-hint">✓ Vote recorded — results update live</p>
               )}
 
-              {/* Analyze button */}
+              {/* Footer: Analyze button */}
               <div className="card-footer">
                 <button
                   className={`btn-analyze ${analysisLoading ? 'loading' : ''}`}
@@ -194,7 +269,7 @@ export function PollRoom() {
                   disabled={analysisLoading}
                 >
                   {analysisLoading ? (
-                    <><span className="btn-spinner"/><span>Analyzing…</span></>
+                    <><span className="btn-spinner" /><span>Analyzing…</span></>
                   ) : (
                     <><span>⬡</span><span>Analyze Results</span></>
                   )}
@@ -204,7 +279,7 @@ export function PollRoom() {
                 )}
               </div>
 
-              {/* Analysis result */}
+              {/* Analysis result card */}
               {analysis && (
                 <div className="analysis-card">
                   <div className="analysis-header">
@@ -244,6 +319,16 @@ export function PollRoom() {
         <CreatePollModal
           onClose={() => setShowCreate(false)}
           onCreated={handlePollCreated}
+          socket={socket}
+        />
+      )}
+
+      {/* ── Edit Poll Modal ── */}
+      {editingPoll && (
+        <EditPollModal
+          poll={editingPoll}
+          onClose={() => setEditingPoll(null)}
+          onUpdated={handlePollUpdated}
           socket={socket}
         />
       )}
