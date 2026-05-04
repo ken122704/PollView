@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { Socket } from 'socket.io-client';
 import type { Poll } from '../types/poll';
-import './CreatePollModal.css';
 
 interface Props {
   onClose: () => void;
@@ -10,21 +9,19 @@ interface Props {
 }
 
 export function CreatePollModal({ onClose, onCreated, socket }: Props) {
-  const [question, setQuestion]   = useState('');
-  const [options, setOptions]     = useState(['', '']);
+  const [question, setQuestion]     = useState('');
+  const [options, setOptions]       = useState(['', '']);
   const [submitting, setSubmitting] = useState(false);
-  const [error, setError]         = useState('');
+  const [error, setError]           = useState('');
 
   function addOption() {
     if (options.length >= 8) return;
     setOptions(prev => [...prev, '']);
   }
-
   function removeOption(i: number) {
     if (options.length <= 2) return;
     setOptions(prev => prev.filter((_, idx) => idx !== i));
   }
-
   function updateOption(i: number, val: string) {
     setOptions(prev => prev.map((o, idx) => idx === i ? val : o));
   }
@@ -32,108 +29,150 @@ export function CreatePollModal({ onClose, onCreated, socket }: Props) {
   function handleSubmit() {
     const trimmedQ = question.trim();
     const filled   = options.map(o => o.trim()).filter(Boolean);
-
-    if (!trimmedQ)        return setError('Please enter a question.');
+    if (!trimmedQ)         return setError('Please enter a question.');
     if (filled.length < 2) return setError('Add at least 2 options.');
-
     setError('');
     setSubmitting(true);
-
     socket.emit('create_poll', { question: trimmedQ, options: filled });
-
-    // Listen for the server's response
-    socket.once('poll_created', (poll: Poll) => {
-      setSubmitting(false);
-      onCreated(poll);
-    });
-
-    // Timeout fallback
-    setTimeout(() => {
-      setSubmitting(false);
-      setError('Server did not respond. Is it running?');
-    }, 5000);
+    socket.once('poll_created', (poll: Poll) => { setSubmitting(false); onCreated(poll); });
+    setTimeout(() => { setSubmitting(false); setError('Server did not respond.'); }, 5000);
   }
 
-  // Close on backdrop click
   function handleBackdrop(e: React.MouseEvent<HTMLDivElement>) {
     if (e.target === e.currentTarget) onClose();
   }
 
   return (
-    <div className="modal-backdrop" onClick={handleBackdrop}>
-      <div className="modal-box" role="dialog" aria-modal="true">
+    <div
+      onClick={handleBackdrop}
+      className="fixed inset-0 z-50 flex items-center justify-center p-4
+        bg-black/65 backdrop-blur-sm animate-[fade-in_0.15s_ease]"
+    >
+      <div className="bg-[#111318] border border-white/12 rounded-2xl p-7 w-full max-w-lg
+        shadow-[0_24px_64px_rgba(0,0,0,0.6)] animate-[modal-in_0.2s_cubic-bezier(0.34,1.56,0.64,1)]">
+
         {/* Header */}
-        <div className="modal-header">
-          <h2 className="modal-title">Create a poll</h2>
-          <button className="modal-close" onClick={onClose} aria-label="Close">✕</button>
+        <div className="flex items-center justify-between mb-6">
+          <h2 className="text-lg font-semibold tracking-tight text-[#f1f2f5]">Create a poll</h2>
+          <button
+            onClick={onClose}
+            className="text-[#4b5068] hover:text-[#f1f2f5] hover:bg-[#1e2230] text-sm
+              px-2 py-1 rounded-md transition-all cursor-pointer bg-transparent border-none"
+          >
+            ✕
+          </button>
         </div>
 
         {/* Question */}
-        <div className="field">
-          <label className="field-label">Question</label>
+        <div className="mb-5 relative">
+          <label className="block text-[0.78rem] font-semibold tracking-widest text-[#4b5068] uppercase mb-2">
+            Question
+          </label>
           <input
-            className="field-input"
             type="text"
             placeholder="e.g. What's your favorite framework?"
             value={question}
             onChange={e => { setQuestion(e.target.value); setError(''); }}
             maxLength={160}
             autoFocus
+            className="w-full bg-[#181b22] border border-white/7 rounded-lg px-3.5 py-2.5
+              text-sm text-[#f1f2f5] placeholder-[#4b5068] outline-none font-sans
+              focus:border-[#6366f1] focus:shadow-[0_0_0_3px_rgba(99,102,241,0.15)]
+              transition-all"
           />
-          <span className="char-count mono">{question.length}/160</span>
+          <span className="absolute right-3 -bottom-5 text-[0.7rem] text-[#4b5068] font-mono">
+            {question.length}/160
+          </span>
         </div>
 
         {/* Options */}
-        <div className="field">
-          <label className="field-label">
-            Options
-            <span className="field-meta">{options.length}/8</span>
-          </label>
-          <div className="options-input-list">
+        <div className="mb-5 mt-7">
+          <div className="flex items-center justify-between mb-2">
+            <label className="text-[0.78rem] font-semibold tracking-widest text-[#4b5068] uppercase">
+              Options
+            </label>
+            <span className="text-[0.72rem] text-[#4b5068] font-mono">{options.length}/8</span>
+          </div>
+
+          <div className="flex flex-col gap-2 mb-2">
             {options.map((opt, i) => (
-              <div className="option-input-row" key={i}
-                style={{ animationDelay: `${i * 0.04}s` }}>
-                <span className="option-index mono">{i + 1}</span>
+              <div
+                key={i}
+                className="flex items-center gap-2 animate-[slide-up_0.2s_ease_both]"
+                style={{ animationDelay: `${i * 0.04}s` }}
+              >
+                <span className="text-[0.75rem] text-[#4b5068] font-mono w-4 text-center flex-shrink-0">
+                  {i + 1}
+                </span>
                 <input
-                  className="field-input option-input"
                   type="text"
                   placeholder={`Option ${i + 1}`}
                   value={opt}
                   onChange={e => { updateOption(i, e.target.value); setError(''); }}
                   maxLength={80}
-                  onKeyDown={e => {
-                    if (e.key === 'Enter') addOption();
-                  }}
+                  onKeyDown={e => { if (e.key === 'Enter') addOption(); }}
+                  className="flex-1 bg-[#181b22] border border-white/7 rounded-lg px-3 py-2
+                    text-sm text-[#f1f2f5] placeholder-[#4b5068] outline-none font-sans
+                    focus:border-[#6366f1] focus:shadow-[0_0_0_3px_rgba(99,102,241,0.15)]
+                    transition-all"
                 />
                 <button
-                  className="remove-btn"
                   onClick={() => removeOption(i)}
                   disabled={options.length <= 2}
-                  aria-label="Remove option"
-                >✕</button>
+                  className="text-[#4b5068] text-xs px-2 py-2 rounded-md border border-transparent
+                    hover:text-[#ef4444] hover:border-red-500/30 hover:bg-red-500/8
+                    disabled:opacity-20 disabled:cursor-not-allowed transition-all
+                    cursor-pointer bg-transparent flex-shrink-0"
+                >
+                  ✕
+                </button>
               </div>
             ))}
           </div>
+
           {options.length < 8 && (
-            <button className="add-option-btn" onClick={addOption}>
+            <button
+              onClick={addOption}
+              className="w-full text-left text-sm text-[#4b5068] border border-dashed border-white/12
+                rounded-lg px-3 py-2 hover:text-[#6366f1] hover:border-[#6366f1]
+                hover:bg-[rgba(99,102,241,0.15)] transition-all cursor-pointer bg-transparent"
+            >
               + Add option
             </button>
           )}
         </div>
 
-        {error && <p className="modal-error">{error}</p>}
+        {error && (
+          <p className="text-sm text-[#ef4444] bg-red-500/8 border border-red-500/20
+            rounded-lg px-3 py-2.5 mb-4">
+            {error}
+          </p>
+        )}
 
         {/* Footer */}
-        <div className="modal-footer">
-          <button className="btn-cancel" onClick={onClose}>Cancel</button>
+        <div className="flex justify-end gap-3 pt-5 border-t border-white/7">
           <button
-            className={`btn-primary btn-create ${submitting ? 'loading' : ''}`}
+            onClick={onClose}
+            className="px-4 py-2 text-sm font-medium text-[#8b8fa8] border border-white/12
+              rounded-lg hover:text-[#f1f2f5] hover:bg-[#1e2230] transition-all
+              cursor-pointer bg-transparent"
+          >
+            Cancel
+          </button>
+          <button
             onClick={handleSubmit}
             disabled={submitting}
+            className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium
+              bg-[#6366f1] hover:bg-indigo-500 text-white rounded-lg transition-all
+              disabled:opacity-70 cursor-pointer min-w-[110px] justify-center
+              hover:shadow-[0_4px_16px_rgba(99,102,241,0.35)]"
           >
-            {submitting
-              ? <><span className="btn-spinner"/>Creating…</>
-              : <>Create Poll</>}
+            {submitting ? (
+              <>
+                <span className="w-3.5 h-3.5 rounded-full border border-white/30 border-t-white animate-[spin_0.7s_linear_infinite]" />
+                Creating…
+              </>
+            ) : 'Create Poll'}
           </button>
         </div>
       </div>
