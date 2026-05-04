@@ -66,21 +66,35 @@ export function initSocket(httpServer: HttpServer): SocketServer {
     // ── ANALYZE RESULTS ─────────────────────────────────────────────
     // This offloads heavy work to the BullMQ worker — Phase 5's core concept
     socket.on('analyze_poll', async (pollId: string) => {
-      const poll = getPoll(pollId);
-      if (!poll) {
+    const poll = getPoll(pollId);
+    if (!poll) {
         socket.emit('error_message', 'Poll not found for analysis');
         return;
-      }
+    }
 
-      // Tell the client we've QUEUED the job (instant response)
-      socket.emit('analysis_queued', {
+    // Tell the client immediately that we received the request
+    socket.emit('analysis_queued', {
         pollId,
-        message: 'Analysis job queued. Results will arrive shortly...',
-      });
+        message: 'Analysis job queued. Results will arrive in ~3 seconds...',
+    });
 
-      // Fire and forget — the worker handles it asynchronously
-      await addAnalysisJob(poll, socket.id);
-      console.log(`📬 Analysis job queued for poll: ${pollId}`);
+    // addAnalysisJob now returns false instead of throwing if Redis is down
+    const queued = await addAnalysisJob(poll, socket.id);
+
+    if (!queued) {
+        // Redis is down — fall back to running the analysis inline
+        // (not ideal for production, but keeps the demo working)
+        console.warn('⚠️  Redis unavailable — running analysis inline as fallback');
+        runAnalysisInline(poll, socket);
+    }
+    });
+
+    // ✅ NEW: Worker connects back as a client and fires this event
+    // The server then forwards the summary to the correct end-user socket
+    socket.on('worker_result', ({ socketId, summary }: { socketId: string; summary: any }) => {
+    console.log(`📬 Worker result received, forwarding to client: ${socketId}`);
+    // io.to(socketId) sends ONLY to the specific user who requested analysis
+    io.to(socketId).emit('analysis_complete', summary);
     });
 
     // ── DISCONNECT ──────────────────────────────────────────────────
@@ -92,5 +106,38 @@ export function initSocket(httpServer: HttpServer): SocketServer {
   // Export io so the worker can use it to push results back to the client
   (global as any).__socketIO = io;
 
+        function runAnalysisInline(poll: any, socket: any) {
+        // Simulate the 3s delay even in fallback mode
+        setTimeout(() => {
+            const winner = poll.options.reduce(
+            (best: any, opt: any) => (opt.votes > best.votes ? opt : best),
+            poll.options[0]
+            );
+
+            const summary = {
+            pollId: poll.id,
+            question: poll.question,
+            totalVotes: poll.totalVotes,
+            winner: winner.label,
+            winnerVotes: winner.votes,
+            winnerPercentage:
+                poll.totalVotes > 0
+                ? ((winner.votes / poll.totalVotes) * 100).toFixed(1)
+                : '0',
+            breakdown: poll.options.map((opt: any) => ({
+                label: opt.label,
+                votes: opt.votes,
+                percentage:
+                poll.totalVotes > 0
+                    ? ((opt.votes / poll.totalVotes) * 100).toFixed(1)
+                    : '0',
+            })),
+            generatedAt: new Date().toISOString(),
+            note: 'Processed inline (Redis unavailable)',
+            };
+
+            socket.emit('analysis_complete', summary);
+        }, 3000);
+    }
   return io;
 }

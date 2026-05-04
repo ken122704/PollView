@@ -1,37 +1,24 @@
-// worker.ts
-// ---------------------------------------------------------------------------
-// This file runs as a COMPLETELY SEPARATE Node.js process.
-// Run it with: npm run worker
-//
-// WHY SEPARATE? If "Analyze Results" took 10 seconds on the main server,
-// it would block ALL other users' votes for 10 seconds. By offloading to
-// a worker, the main server stays responsive for real-time voting while
-// the worker crunches numbers in parallel. This is the core of your
-// "task distribution" requirement.
-// ---------------------------------------------------------------------------
-
 import { Worker, Job } from 'bullmq';
-import { redisConnection } from './queue';
+import { getRedisConnection } from './queue';
+import { io as SocketClient } from 'socket.io-client';
 import dotenv from 'dotenv';
 
 dotenv.config();
 
+const SERVER_URL = `http://localhost:${process.env.PORT || 3001}`;
+
 console.log('🔧 Analysis worker started — waiting for jobs...');
+console.log(`📡 Will push results to server at: ${SERVER_URL}`);
 
 const worker = new Worker(
   'poll-analysis',
   async (job: Job) => {
     const { poll, socketId } = job.data;
+    console.log(`⚙️  Processing analysis for poll: ${poll.id}`);
 
-    console.log(`⚙️  Processing analysis job for poll: ${poll.id}`);
-
-    // ── SIMULATED HEAVY COMPUTATION ─────────────────────────────────
-    // In production this could be: ML inference, PDF generation,
-    // database aggregation, sending emails, etc.
-    // We simulate it with a 3-second delay.
+    // Simulate heavy computation
     await new Promise((resolve) => setTimeout(resolve, 3000));
 
-    // Generate a simple text summary
     const winner = poll.options.reduce(
       (best: any, opt: any) => (opt.votes > best.votes ? opt : best),
       poll.options[0]
@@ -58,26 +45,48 @@ const worker = new Worker(
       generatedAt: new Date().toISOString(),
     };
 
-    // Push the result back to the specific client who requested it
-    // We reach into the global Socket.io instance the main server attached
-    const io = (global as any).__socketIO;
-    if (io) {
-      io.to(socketId).emit('analysis_complete', summary);
-      console.log(`✅ Analysis sent back to socket: ${socketId}`);
-    } else {
-      console.warn('⚠️  Socket.io not available in worker context');
-      // In production: save to DB and let client poll for results
-    }
+    // ✅ FIX: Connect back to the server as a Socket.io CLIENT
+    // and ask the server to forward the result to the correct user.
+    // This works across processes — no shared memory needed.
+    await deliverResult(socketId, summary);
 
+    console.log(`✅ Analysis delivered to socket: ${socketId}`);
     return summary;
   },
-  { connection: redisConnection }
+  { connection: getRedisConnection() }
 );
+
+// Connects to the main server and emits a special internal event
+// that tells the server to forward the result to the right client.
+function deliverResult(socketId: string, summary: any): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const workerSocket = SocketClient(SERVER_URL, {
+      transports: ['websocket'],
+    });
+
+    const timeout = setTimeout(() => {
+      workerSocket.disconnect();
+      reject(new Error('Timed out delivering result to server'));
+    }, 5000);
+
+    workerSocket.on('connect', () => {
+      workerSocket.emit('worker_result', { socketId, summary });
+      clearTimeout(timeout);
+      workerSocket.disconnect();
+      resolve();
+    });
+
+    workerSocket.on('connect_error', (err) => {
+      clearTimeout(timeout);
+      reject(err);
+    });
+  });
+}
 
 worker.on('failed', (job, err) => {
   console.error(`❌ Job ${job?.id} failed:`, err.message);
 });
 
 worker.on('completed', (job) => {
-  console.log(`✅ Job ${job.id} completed`);
+  console.log(`✅ Job ${job?.id} completed`);
 });
