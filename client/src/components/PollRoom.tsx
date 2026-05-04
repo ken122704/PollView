@@ -1,15 +1,9 @@
 import { useEffect, useState, useCallback } from 'react';
 import { socket } from '../socket';
-import { CreatePollModal } from './CreatePollModal';
+import { CreatePollModal } from  './CreatePollModal';
+import type { Poll, AnalysisSummary } from '../types/poll';
 import './PollRoom.css';
 
-interface PollOption { id: string; label: string; votes: number; }
-interface Poll { id: string; question: string; options: PollOption[]; totalVotes: number; }
-interface AnalysisSummary {
-  winner: string; winnerPercentage: string; totalVotes: number;
-  breakdown: { label: string; votes: number; percentage: string }[];
-  generatedAt: string;
-}
 
 export function PollRoom() {
   const [polls, setPolls]               = useState<Poll[]>([]);
