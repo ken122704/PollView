@@ -1,44 +1,35 @@
 import { useEffect, useState, useCallback } from 'react';
 import { socket } from '../socket';
+import { CreatePollModal } from './CreatePollModal';
+import './PollRoom.css';
 
-interface PollOption {
-  id: string;
-  label: string;
-  votes: number;
-}
-
-interface Poll {
-  id: string;
-  question: string;
-  options: PollOption[];
-  totalVotes: number;
-}
-
+interface PollOption { id: string; label: string; votes: number; }
+interface Poll { id: string; question: string; options: PollOption[]; totalVotes: number; }
 interface AnalysisSummary {
-  winner: string;
-  winnerPercentage: string;
-  totalVotes: number;
+  winner: string; winnerPercentage: string; totalVotes: number;
   breakdown: { label: string; votes: number; percentage: string }[];
+  generatedAt: string;
 }
 
 export function PollRoom() {
-  const [polls, setPolls] = useState<Poll[]>([]);
-  const [activePoll, setActivePoll] = useState<Poll | null>(null);
-  const [analysis, setAnalysis] = useState<AnalysisSummary | null>(null);
-  const [analysisStatus, setAnalysisStatus] = useState<string>('');
-  const [connected, setConnected] = useState(false);
-  const [votedOption, setVotedOption] = useState<string | null>(null);
+  const [polls, setPolls]               = useState<Poll[]>([]);
+  const [activePoll, setActivePoll]     = useState<Poll | null>(null);
+  const [analysis, setAnalysis]         = useState<AnalysisSummary | null>(null);
+  const [analysisStatus, setAnalysisStatus] = useState('');
+  const [analysisLoading, setAnalysisLoading] = useState(false);
+  const [connected, setConnected]       = useState(false);
+  const [votedOption, setVotedOption]   = useState<string | null>(null);
+  const [showCreate, setShowCreate]     = useState(false);
+  const [justVoted, setJustVoted]       = useState(false);
 
-  // ✅ FIX: Define joinPoll with useCallback BEFORE useEffect.
-  // useCallback ensures the function reference is stable across renders.
-  // Without it, every render creates a new function instance, which would
-  // cause useEffect's dependency array to trigger on every render.
   const joinPoll = useCallback((pollId: string) => {
     socket.emit('join_poll', pollId);
     setVotedOption(null);
     setAnalysis(null);
     setAnalysisStatus('');
-  }, []); // Empty array = this function reference never changes
+    setAnalysisLoading(false);
+    setJustVoted(false);
+  }, []);
 
   useEffect(() => {
     socket.connect();
@@ -47,229 +38,220 @@ export function PollRoom() {
       setConnected(true);
       socket.emit('get_polls');
     });
-
     socket.on('disconnect', () => setConnected(false));
-
     socket.on('polls_list', (data: Poll[]) => {
-      setPolls(data); // ✅ FIX: polls is now rendered in the JSX below
-      // ✅ FIX: joinPoll is guaranteed to be defined here because
-      // useCallback ran before useEffect during component initialization
-      if (data.length > 0) {
-        joinPoll(data[0].id);
-      }
+      setPolls(data);
+      if (data.length > 0) joinPoll(data[0].id);
     });
-
-    socket.on('poll_state', (poll: Poll) => {
-      setActivePoll(poll);
+    socket.on('poll_created', (poll: Poll) => {
+      setPolls(prev => {
+        if (prev.find(p => p.id === poll.id)) return prev;
+        return [...prev, poll];
+      });
     });
-
-    socket.on('poll_update', (poll: Poll) => {
-      setActivePoll(poll);
-    });
-
+    socket.on('poll_state',  (poll: Poll) => setActivePoll(poll));
+    socket.on('poll_update', (poll: Poll) => setActivePoll(poll));
     socket.on('analysis_queued', ({ message }: { message: string }) => {
       setAnalysisStatus(message);
+      setAnalysisLoading(true);
       setAnalysis(null);
     });
-
     socket.on('analysis_complete', (summary: AnalysisSummary) => {
       setAnalysis(summary);
       setAnalysisStatus('');
+      setAnalysisLoading(false);
     });
-
-    socket.on('error_message', (msg: string) => {
-      console.error('Socket error:', msg);
-    });
+    socket.on('error_message', (msg: string) => console.error('Socket error:', msg));
 
     return () => {
-      socket.off('connect');
-      socket.off('disconnect');
-      socket.off('polls_list');
-      socket.off('poll_state');
-      socket.off('poll_update');
-      socket.off('analysis_queued');
-      socket.off('analysis_complete');
-      socket.off('error_message');
+      ['connect','disconnect','polls_list','poll_created','poll_state',
+       'poll_update','analysis_queued','analysis_complete','error_message']
+        .forEach(e => socket.off(e));
       socket.disconnect();
     };
-  }, [joinPoll]); // ✅ joinPoll is a stable ref, so this only runs once
+  }, [joinPoll]);
 
   function vote(optionId: string) {
-    if (!activePoll) return;
+    if (!activePoll || votedOption) return;
     socket.emit('cast_vote', { pollId: activePoll.id, optionId });
     setVotedOption(optionId);
+    setJustVoted(true);
+    setTimeout(() => setJustVoted(false), 600);
   }
 
   function requestAnalysis() {
-    if (!activePoll) return;
+    if (!activePoll || analysisLoading) return;
     socket.emit('analyze_poll', activePoll.id);
   }
 
+  function handlePollCreated(poll: Poll) {
+    setPolls(prev => {
+      if (prev.find(p => p.id === poll.id)) return prev;
+      return [...prev, poll];
+    });
+    joinPoll(poll.id);
+    setShowCreate(false);
+  }
+
   return (
-    <div>
-      {/* Connection Badge */}
-      <div style={{ marginBottom: '1.5rem' }}>
-        <span
-          style={{
-            display: 'inline-block',
-            padding: '0.25rem 0.75rem',
-            borderRadius: '999px',
-            fontSize: '0.85rem',
-            background: connected ? '#dcfce7' : '#fee2e2',
-            color: connected ? '#15803d' : '#dc2626',
-          }}
-        >
-          {connected ? '🟢 WebSocket Connected' : '🔴 Disconnected'}
-        </span>
+    <div className="poll-room">
+      {/* ── Page title row ── */}
+      <div className="page-header">
+        <div>
+          <h1 className="page-title">Live Polls</h1>
+          <p className="page-sub">Votes update in real-time across all connected clients</p>
+        </div>
+        <button className="btn-primary" onClick={() => setShowCreate(true)}>
+          <span>+</span> New Poll
+        </button>
       </div>
 
-      {/* ✅ FIX: Actually render the polls list so `polls` state is used */}
-      {polls.length > 1 && (
-        <div style={{ marginBottom: '1.5rem' }}>
-          <h3 style={{ marginBottom: '0.5rem' }}>Available Polls</h3>
-          <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-            {polls.map((poll) => (
+      {/* ── Connection badge ── */}
+      <div className={`ws-badge ${connected ? 'ws-on' : 'ws-off'}`}>
+        <span className="ws-dot" />
+        {connected ? 'WebSocket connected' : 'Disconnected'}
+      </div>
+
+      <div className="room-layout">
+        {/* ── Sidebar: poll list ── */}
+        <aside className="poll-sidebar">
+          <p className="sidebar-label">POLLS  <span className="poll-count">{polls.length}</span></p>
+          <div className="poll-list">
+            {polls.length === 0 && (
+              <p className="empty-hint">No polls yet.<br/>Create one to get started.</p>
+            )}
+            {polls.map(poll => (
               <button
                 key={poll.id}
+                className={`poll-tab ${activePoll?.id === poll.id ? 'active' : ''}`}
                 onClick={() => joinPoll(poll.id)}
-                style={{
-                  padding: '0.4rem 0.9rem',
-                  borderRadius: '6px',
-                  border: activePoll?.id === poll.id
-                    ? '2px solid #6366f1'
-                    : '2px solid #e2e8f0',
-                  background: activePoll?.id === poll.id ? '#e0e7ff' : 'white',
-                  cursor: 'pointer',
-                  fontWeight: activePoll?.id === poll.id ? 600 : 400,
-                }}
               >
-                {poll.question}
+                <span className="poll-tab-question">{poll.question}</span>
+                <span className="poll-tab-meta mono">{poll.totalVotes} votes</span>
               </button>
             ))}
           </div>
-        </div>
-      )}
-
-      {/* Active Poll */}
-      {activePoll && (
-        <div
-          style={{
-            border: '1px solid #e2e8f0',
-            borderRadius: '12px',
-            padding: '1.5rem',
-            marginBottom: '1.5rem',
-          }}
-        >
-          <h2 style={{ marginTop: 0 }}>{activePoll.question}</h2>
-          <p style={{ color: '#64748b' }}>
-            Total votes: <strong>{activePoll.totalVotes}</strong>
-          </p>
-
-          {/* Vote Options */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-            {activePoll.options.map((opt) => {
-              const pct =
-                activePoll.totalVotes > 0
-                  ? ((opt.votes / activePoll.totalVotes) * 100).toFixed(1)
-                  : '0';
-              const isVoted = votedOption === opt.id;
-
-              return (
-                <button
-                  key={opt.id}
-                  onClick={() => vote(opt.id)}
-                  style={{
-                    position: 'relative',
-                    padding: '0.75rem 1rem',
-                    border: isVoted ? '2px solid #6366f1' : '2px solid #e2e8f0',
-                    borderRadius: '8px',
-                    background: 'white',
-                    cursor: 'pointer',
-                    textAlign: 'left',
-                    overflow: 'hidden',
-                  }}
-                >
-                  <div
-                    style={{
-                      position: 'absolute',
-                      left: 0,
-                      top: 0,
-                      height: '100%',
-                      width: `${pct}%`,
-                      background: isVoted ? '#e0e7ff' : '#f1f5f9',
-                      transition: 'width 0.4s ease',
-                      zIndex: 0,
-                    }}
-                  />
-                  <span style={{ position: 'relative', zIndex: 1, fontWeight: 500 }}>
-                    {isVoted ? '✓ ' : ''}{opt.label}
-                  </span>
-                  <span
-                    style={{
-                      position: 'absolute',
-                      right: '1rem',
-                      top: '50%',
-                      transform: 'translateY(-50%)',
-                      zIndex: 1,
-                      color: '#64748b',
-                      fontSize: '0.9rem',
-                    }}
-                  >
-                    {opt.votes} ({pct}%)
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-
-          {/* Analyze Button */}
-          <button
-            onClick={requestAnalysis}
-            style={{
-              marginTop: '1.25rem',
-              padding: '0.6rem 1.25rem',
-              background: '#6366f1',
-              color: 'white',
-              border: 'none',
-              borderRadius: '8px',
-              cursor: 'pointer',
-              fontWeight: 600,
-            }}
-          >
-            🔍 Analyze Results
+          <button className="btn-ghost sidebar-new" onClick={() => setShowCreate(true)}>
+            + Create poll
           </button>
+        </aside>
 
-          {analysisStatus && (
-            <p style={{ color: '#6366f1', marginTop: '0.75rem' }}>
-              ⏳ {analysisStatus}
-            </p>
-          )}
-
-          {analysis && (
-            <div
-              style={{
-                marginTop: '1rem',
-                padding: '1rem',
-                background: '#f0fdf4',
-                borderRadius: '8px',
-                border: '1px solid #86efac',
-              }}
-            >
-              <h3 style={{ margin: '0 0 0.5rem' }}>📊 Analysis Complete</h3>
-              <p>
-                🏆 Winner: <strong>{analysis.winner}</strong> with{' '}
-                {analysis.winnerPercentage}% of {analysis.totalVotes} votes
-              </p>
-              <ul>
-                {analysis.breakdown.map((b) => (
-                  <li key={b.label}>
-                    {b.label}: {b.votes} votes ({b.percentage}%)
-                  </li>
-                ))}
-              </ul>
+        {/* ── Main: active poll ── */}
+        <section className="poll-main">
+          {!activePoll && (
+            <div className="poll-empty">
+              <div className="empty-icon">◈</div>
+              <p>Select a poll from the left or create a new one</p>
             </div>
           )}
-        </div>
+
+          {activePoll && (
+            <div className={`poll-card ${justVoted ? 'just-voted' : ''}`}>
+              {/* Card header */}
+              <div className="poll-card-header">
+                <span className="live-badge"><span className="live-dot"/>LIVE</span>
+                <span className="vote-count mono">{activePoll.totalVotes} votes</span>
+              </div>
+
+              <h2 className="poll-question">{activePoll.question}</h2>
+
+              {/* Options */}
+              <div className="options-list">
+                {activePoll.options.map((opt, i) => {
+                  const pct = activePoll.totalVotes > 0
+                    ? (opt.votes / activePoll.totalVotes) * 100 : 0;
+                  const isVoted   = votedOption === opt.id;
+                  const isWinning = activePoll.totalVotes > 0 &&
+                    opt.votes === Math.max(...activePoll.options.map(o => o.votes));
+
+                  return (
+                    <button
+                      key={opt.id}
+                      className={`option-btn ${isVoted ? 'voted' : ''} ${isWinning && activePoll.totalVotes > 0 ? 'winning' : ''} ${votedOption && !isVoted ? 'dimmed' : ''}`}
+                      onClick={() => vote(opt.id)}
+                      disabled={!!votedOption}
+                      style={{ '--delay': `${i * 0.05}s` } as React.CSSProperties}
+                    >
+                      <div className="option-bar" style={{ width: `${pct}%` }} />
+                      <div className="option-content">
+                        <span className="option-label">
+                          {isVoted && <span className="check">✓</span>}
+                          {opt.label}
+                        </span>
+                        <span className="option-stats mono">
+                          <span className="option-pct">{pct.toFixed(1)}%</span>
+                          <span className="option-votes">{opt.votes}</span>
+                        </span>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {votedOption && (
+                <p className="voted-hint">✓ Vote recorded — results update live</p>
+              )}
+
+              {/* Analyze button */}
+              <div className="card-footer">
+                <button
+                  className={`btn-analyze ${analysisLoading ? 'loading' : ''}`}
+                  onClick={requestAnalysis}
+                  disabled={analysisLoading}
+                >
+                  {analysisLoading ? (
+                    <><span className="btn-spinner"/><span>Analyzing…</span></>
+                  ) : (
+                    <><span>⬡</span><span>Analyze Results</span></>
+                  )}
+                </button>
+                {analysisStatus && !analysis && (
+                  <span className="analysis-hint">{analysisStatus}</span>
+                )}
+              </div>
+
+              {/* Analysis result */}
+              {analysis && (
+                <div className="analysis-card">
+                  <div className="analysis-header">
+                    <span className="analysis-title">Analysis complete</span>
+                    <span className="analysis-time mono">
+                      {new Date(analysis.generatedAt).toLocaleTimeString()}
+                    </span>
+                  </div>
+                  <div className="winner-row">
+                    <span className="winner-label">Winner</span>
+                    <span className="winner-value">{analysis.winner}</span>
+                    <span className="winner-pct mono">{analysis.winnerPercentage}%</span>
+                  </div>
+                  <div className="analysis-breakdown">
+                    {analysis.breakdown.map(b => (
+                      <div key={b.label} className="breakdown-row">
+                        <span className="breakdown-label">{b.label}</span>
+                        <div className="breakdown-bar-wrap">
+                          <div
+                            className="breakdown-bar"
+                            style={{ width: `${b.percentage}%` }}
+                          />
+                        </div>
+                        <span className="breakdown-pct mono">{b.percentage}%</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </section>
+      </div>
+
+      {/* ── Create Poll Modal ── */}
+      {showCreate && (
+        <CreatePollModal
+          onClose={() => setShowCreate(false)}
+          onCreated={handlePollCreated}
+          socket={socket}
+        />
       )}
     </div>
   );
