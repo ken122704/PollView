@@ -45,7 +45,7 @@ export function Home() {
         <div className="space-y-6 flex flex-col justify-center">
           <img  src={Logo}  alt="logo"  className="block w-40 h-40 mb-0 -ml-5"  />
           <h1 className="text-4xl md:text-5xl font-bold tracking-tight text-slate-900 leading-tight">
-            Real-time polling for <span className="text-indigo-400">everyone.</span>
+            Real-time polling for <span className="text-indigo-600">everyone.</span>
           </h1>
           <p className="text-lg text-slate-600 max-w-md">
             Engage your audience, make decisions faster, and easily gather insights with live interactive polls.
@@ -53,7 +53,7 @@ export function Home() {
           
           <div className="flex items-center gap-4 pt-2 text-sm font-medium text-slate-500">
             <div className="flex items-center gap-2">
-              <Users className="w-5 h-5 text-indigo-400" />
+              <Users className="w-5 h-5 text-indigo-600" />
               <span>10k+ Users</span>
             </div>
             <div className="w-1.5 h-1.5 rounded-full bg-slate-300"></div>
