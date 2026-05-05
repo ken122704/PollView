@@ -1,34 +1,20 @@
-// pollStore.ts
-// ---------------------------------------------------------------------------
-// WHY THIS EXISTS:
-// When 50 users vote at the same millisecond, naive code does this:
-//   1. Read current count (e.g. 10)
-//   2. Add 1 → 11
-//   3. Write 11 back
-// If two requests do step 1 simultaneously they BOTH read 10, both write 11,
-// and you lose a vote. This is a classic race condition.
-//
-// The fix: use a Mutex (mutual exclusion lock). Only ONE vote operation
-// runs at a time. Others wait in line. No votes are lost.
-// ---------------------------------------------------------------------------
-
 interface PollOption {
   id: string;
   label: string;
   votes: number;
 }
 
-interface Poll {
+export interface Poll {
   id: string;
+  shortCode: string;
   question: string;
   options: PollOption[];
   totalVotes: number;
+  status: 'waiting' | 'active' | 'closed';
 }
 
-// In-memory store — good enough for a demo, easily swappable for PostgreSQL
 const polls: Map<string, Poll> = new Map();
 
-// Simple async mutex implementation
 class Mutex {
   private queue: Array<() => void> = [];
   private locked = false;
@@ -38,7 +24,6 @@ class Mutex {
       const tryAcquire = () => {
         if (!this.locked) {
           this.locked = true;
-          // Return the release function
           resolve(() => {
             this.locked = false;
             if (this.queue.length > 0) {
@@ -55,7 +40,6 @@ class Mutex {
   }
 }
 
-// One mutex per poll — so Poll A's votes don't block Poll B's votes
 const pollMutexes: Map<string, Mutex> = new Map();
 
 function getMutex(pollId: string): Mutex {
@@ -65,14 +49,18 @@ function getMutex(pollId: string): Mutex {
   return pollMutexes.get(pollId)!;
 }
 
-// --- Public API ---
+function generateShortCode(): string {
+  return Math.random().toString(36).substring(2, 8).toUpperCase();
+}
 
 export function createPoll(question: string, options: string[]): Poll {
   const poll: Poll = {
     id: `poll_${Date.now()}`,
+    shortCode: generateShortCode(),
     question,
     options: options.map((label, i) => ({ id: `opt_${i}`, label, votes: 0 })),
     totalVotes: 0,
+    status: 'waiting',
   };
   polls.set(poll.id, poll);
   return poll;
@@ -82,18 +70,27 @@ export function getPoll(pollId: string): Poll | undefined {
   return polls.get(pollId);
 }
 
+export function getPollByShortCode(shortCode: string): Poll | undefined {
+  return Array.from(polls.values()).find(p => p.shortCode === shortCode);
+}
+
 export function getAllPolls(): Poll[] {
   return Array.from(polls.values());
 }
 
-// THE CRITICAL FUNCTION — atomic vote with mutex protection
+export function updatePollStatus(pollId: string, status: 'waiting' | 'active' | 'closed'): Poll | null {
+  const poll = polls.get(pollId);
+  if (!poll) return null;
+  poll.status = status;
+  polls.set(pollId, poll);
+  return poll;
+}
+
 export async function castVote(
   pollId: string,
   optionId: string
 ): Promise<Poll | null> {
   const mutex = getMutex(pollId);
-
-  // Acquire the lock — if another vote is in progress, this WAITS here
   const release = await mutex.acquire();
 
   try {
@@ -103,28 +100,27 @@ export async function castVote(
     const option = poll.options.find((o) => o.id === optionId);
     if (!option) return null;
 
-    // Safe to read and write — we own the lock
     option.votes += 1;
     poll.totalVotes += 1;
 
-    return { ...poll, options: [...poll.options] }; // return a copy
+    return { ...poll, options: [...poll.options] }; 
   } finally {
-    // ALWAYS release, even if an error is thrown
     release();
   }
 }
 
-// Seed one default poll so the app works immediately on startup
 export function seedDefaultPoll(): Poll {
-  return createPoll('What is your favorite programming language?', [
-    'TypeScript',
-    'Python',
-    'Rust',
-    'Go',
+  const poll = createPoll('Which frontend framework do you use the most in production?', [
+    'React',
+    'Vue',
+    'Angular',
+    'Svelte',
   ]);
+  // Start the default poll as active for testing
+  poll.status = 'active'; 
+  return poll;
 }
 
-// Add this export alongside createPoll, getPoll, etc.
 export function updatePoll(
   pollId: string,
   question: string,
@@ -133,8 +129,6 @@ export function updatePoll(
   const poll = polls.get(pollId);
   if (!poll) return null;
 
-  // Preserve existing vote counts for options that still exist by label.
-  // New options start at 0. Renamed options also start at 0 (treated as new).
   const updatedOptions: PollOption[] = options.map((label, i) => {
     const existing = poll.options.find(o => o.label === label);
     return {
@@ -144,7 +138,6 @@ export function updatePoll(
     };
   });
 
-  // Recalculate totalVotes based on surviving options
   const totalVotes = updatedOptions.reduce((sum, o) => sum + o.votes, 0);
 
   const updated: Poll = {

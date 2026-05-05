@@ -5,37 +5,55 @@
   --font-sans: 'DM Sans', sans-serif;
   --font-mono: 'DM Mono', monospace;
 
-  --color-bg-base:     #0a0b0f;
-  --color-bg-surface:  #111318;
-  --color-bg-elevated: #181b22;
-  --color-bg-hover:    #1e2230;
-  --color-border:      rgba(255,255,255,0.07);
-  --color-border-mid:  rgba(255,255,255,0.12);
-  --color-accent:      #6366f1;
-  --color-accent-soft: rgba(99,102,241,0.15);
-  --color-accent-glow: rgba(99,102,241,0.35);
-  --color-success:     #22c55e;
-  --color-success-soft:rgba(34,197,94,0.12);
-  --color-danger:      #ef4444;
-  --color-amber:       #f59e0b;
-  --color-text-primary:#f1f2f5;
-  --color-text-secondary:#8b8fa8;
-  --color-text-muted:  #4b5068;
+  /* shadcn/ui base color mappings */
+  --color-background: #ffffff;
+  --color-foreground: #0f172a; /* slate-900 */
+  
+  --color-card: #ffffff;
+  --color-card-foreground: #0f172a;
+  
+  --color-popover: #ffffff;
+  --color-popover-foreground: #0f172a;
+  
+  --color-primary: #4f46e5; /* indigo-600 */
+  --color-primary-foreground: #ffffff;
+  
+  --color-secondary: #f1f5f9; /* slate-100 */
+  --color-secondary-foreground: #0f172a;
+  
+  --color-muted: #f8fafc; /* slate-50 */
+  --color-muted-foreground: #64748b; /* slate-500 */
+  
+  --color-accent: #f1f5f9;
+  --color-accent-foreground: #0f172a;
+  
+  --color-destructive: #ef4444; /* red-500 */
+  --color-destructive-foreground: #f8fafc;
+  
+  --color-border: #e2e8f0; /* slate-200 */
+  --color-input: #e2e8f0;
+  --color-ring: #4f46e5; /* indigo-600 */
+  
+  --radius-lg: 1rem;
+  --radius-md: 0.75rem;
+  --radius-sm: 0.5rem;
 }
 
-* { box-sizing: border-box; margin: 0; padding: 0; }
-
-body {
-  font-family: var(--font-sans);
-  background-color: var(--color-bg-base);
-  color: var(--color-text-primary);
-  -webkit-font-smoothing: antialiased;
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
 }
 
-::-webkit-scrollbar { width: 4px; }
-::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: var(--color-border-mid); border-radius: 4px; }
-
+/* Custom Animations for your specific screens */
 @keyframes pulse-dot {
   0%, 100% { opacity: 1; }
   50%       { opacity: 0.4; }
