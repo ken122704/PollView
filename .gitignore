@@ -5,7 +5,7 @@ node_modules/
 dist/
 build/
 
-# Testing artifacts (ADD THIS)
+# Testing artifacts 
 test-results.json
 test-results.html
 artillery-report.html
