@@ -11,6 +11,9 @@ import {
   updatePollStatus
 } from './pollStore';
 import { addAnalysisJob } from './queue';
+import { Mutex } from './utils/mutex';
+
+const pollMutexes = new Map<string, Mutex>();
 
 const defaultPoll = seedDefaultPoll();
 console.log(`📊 Default poll created: ${defaultPoll.id} (Code: ${defaultPoll.shortCode})`);
@@ -87,11 +90,21 @@ export function initSocket(httpServer: HttpServer): SocketServer {
 
     socket.on('cast_vote', async (payload: { pollId: string; optionId: string }) => {
       const { pollId, optionId } = payload;
-      const updatedPoll = await castVote(pollId, optionId);
-      if (updatedPoll) {
-        io.to(pollId).emit('poll_update', updatedPoll);
-      } else {
-        socket.emit('error_message', 'Vote failed: invalid poll or option');
+
+      if (!pollMutexes.has(pollId)) {
+        pollMutexes.set(pollId, new Mutex());
+      }
+      const mutex = pollMutexes.get(pollId)!;
+
+      await mutex.acquire();
+
+      try {
+        const updatedPoll = await castVote(pollId, optionId);
+        if (updatedPoll) {
+          io.to(pollId).emit('poll_update', updatedPoll);
+        }
+      } finally {
+        mutex.release();
       }
     });
 
