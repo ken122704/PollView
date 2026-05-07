@@ -1,10 +1,14 @@
-cat > .gitignore << 'EOF'
 # Dependencies
 node_modules/
 
 # Build outputs
 dist/
 build/
+
+# Testing artifacts (ADD THIS)
+test-results.json
+test-results.html
+artillery-report.html
 
 # Environment files — NEVER commit these
 .env
@@ -18,4 +22,3 @@ Thumbs.db
 # Editor
 .vscode/
 .idea/
-EOF
