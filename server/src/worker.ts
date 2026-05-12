@@ -45,9 +45,6 @@ const worker = new Worker(
       generatedAt: new Date().toISOString(),
     };
 
-    // ✅ FIX: Connect back to the server as a Socket.io CLIENT
-    // and ask the server to forward the result to the correct user.
-    // This works across processes — no shared memory needed.
     await deliverResult(socketId, summary);
 
     console.log(`✅ Analysis delivered to socket: ${socketId}`);
@@ -57,7 +54,6 @@ const worker = new Worker(
 );
 
 // Connects to the main server and emits a special internal event
-// that tells the server to forward the result to the right client.
 function deliverResult(socketId: string, summary: any): Promise<void> {
   return new Promise((resolve, reject) => {
     const workerSocket = SocketClient(SERVER_URL, {
