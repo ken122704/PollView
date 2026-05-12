@@ -23,27 +23,48 @@ export function ParticipantView() {
     socket.connect();
     socket.emit('join_by_code', shortCode);
     
-    socket.on('poll_state', (data: Poll) => setPoll(data));
+    socket.on('poll_update', (data: Poll) => {
+      setPoll(data);
+      
+      const storedVote = localStorage.getItem(`poll_voted_${data.id}`);
+      if (storedVote) {
+        setSelectedOption(storedVote);
+      }
+    });
+    
     socket.on('poll_update', (data: Poll) => {
       setPoll(data);
       if (data.status === 'waiting') {
         setSelectedOption(null);
+        localStorage.removeItem(`poll_voted_${data.id}`);
       }
     });
-    socket.on('error_message', (msg: string) => setError(msg));
+
+    socket.on('error_message', (msg: string) => {
+      if (msg.includes('not found') || msg.includes('Invalid code')) {
+        alert("This poll has been closed or does not exist.");
+        navigate('/');
+      } else {
+        setError(msg);
+      }
+    });
 
     return () => {
       socket.off('poll_state');
       socket.off('poll_update');
       socket.off('error_message');
     };
-  }, [shortCode]);
+  }, [shortCode, navigate]);
 
   const handleVote = (id: string) => {
     if (selectedOption || !poll || poll.status !== 'active') return;
     
     setSelectedOption(id);
     setIsSubmitting(true);
+
+    //Save the receipt in the browser's permanent memory!
+    localStorage.setItem(`poll_voted_${poll.id}`, id);
+
     socket.emit('cast_vote', { pollId: poll.id, optionId: id });
     
     setTimeout(() => {
@@ -148,7 +169,6 @@ export function ParticipantView() {
                 <CardContent className="p-4 md:p-6">
                   <div className="w-full h-[350px] md:h-[400px]">
                     <ResponsiveContainer width="100%" height="100%">
-                      {/* Notice right: 80 margin to give the labels room to breathe */}
                       <BarChart data={chartData} layout="vertical" margin={{ top: 10, right: 80, left: 0, bottom: 0 }}>
                         <XAxis type="number" hide />
                         <YAxis 
@@ -176,7 +196,6 @@ export function ParticipantView() {
                           {chartData.map((entry, index) => (
                             <Cell key={`cell-${index}`} fill={entry.color} />
                           ))}
-                          {/* This is the magic line that renders the text outside the bar! */}
                           <LabelList dataKey="displayStat" position="right" fill="#64748b" fontSize={14} fontWeight={600} />
                         </Bar>
                       </BarChart>
