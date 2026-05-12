@@ -20,12 +20,26 @@ export function ParticipantView() {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
-    socket.connect();
-    socket.emit('join_by_code', shortCode);
+    // 1. Define the join logic as a reusable function
+    const joinPoll = () => {
+      if (shortCode) {
+        socket.emit('join_by_code', shortCode);
+      }
+    };
+
+    // 2. If the socket is already connected, join instantly. If not, connect it.
+    if (socket.connected) {
+      joinPoll();
+    } else {
+      socket.connect();
+    }
+
+    // 3. Wait for the exact moment the connection opens to emit the join request
+    socket.on('connect', joinPoll);
     
-    socket.on('poll_update', (data: Poll) => {
+    // 4. Standard listeners
+    socket.on('poll_state', (data: Poll) => {
       setPoll(data);
-      
       const storedVote = localStorage.getItem(`poll_voted_${data.id}`);
       if (storedVote) {
         setSelectedOption(storedVote);
@@ -49,7 +63,9 @@ export function ParticipantView() {
       }
     });
 
+    // Cleanup listeners when leaving the page
     return () => {
+      socket.off('connect', joinPoll);
       socket.off('poll_state');
       socket.off('poll_update');
       socket.off('error_message');
