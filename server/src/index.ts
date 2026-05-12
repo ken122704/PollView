@@ -7,6 +7,11 @@ import { initSocket } from './socket';
 dotenv.config();
 
 const app = express();
+
+app.get('/health', (req, res) => {
+    res.status(200).send('PollView Backend is awake and healthy!');
+});
+
 const httpServer = http.createServer(app);
 
 // --- Middleware ---
